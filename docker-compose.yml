@@ -4,4 +4,11 @@ services:
     volumes:
       - .:/app
     working_dir: /app
+    ports:
+      - "7860:7860"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    env_file:
+      - .env
     tty: true
+    command: python -m src.main --host 0.0.0.0
