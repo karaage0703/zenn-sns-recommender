@@ -5,7 +5,7 @@ Gradioインターフェースを管理するモジュール
 import re
 import logging
 import gradio as gr
-from typing import Tuple, Optional
+from typing import Optional
 from .zenn_data_fetcher import ZennDataFetcher
 from .post_generator import PostGenerator
 
@@ -58,75 +58,21 @@ class GradioInterface:
 
         return None
 
-    def process_url(self, url: str, tone: str, article_limit: int, template: str = "") -> Tuple[str, str]:
-        """
-        URLを処理して投稿文を生成する
-
-        Args:
-            url: ZennのURL
-            tone: 投稿のトーン（"personal"または"corporate"）
-            article_limit: 取得する記事数
-            template: 定型文（空文字列の場合は使用しない）
-
-        Returns:
-            Tuple[str, str]: 処理結果のメッセージと生成された投稿文
-        """
-        # URLからユーザー名を抽出
-        username = self.extract_username(url)
-        if not username:
-            return "エラー: 有効なZennのURLまたはユーザー名を入力してください。", ""
-
-        # 企業アカウントかどうかを判断
-        is_company = url.startswith("https://zenn.dev/p/") or url.startswith("http://zenn.dev/p/")
-
-        # ZennDataFetcherのインスタンスを作成（未設定の場合）
-        if not self.fetcher:
-            self.fetcher = ZennDataFetcher(username, is_company=is_company)
-        else:
-            self.fetcher.username = username
-            self.fetcher.is_company = is_company
-            # URLを再構築
-            self.fetcher.setup_urls()
-
-        # 人気記事を取得
-        try:
-            self.current_articles = self.fetcher.get_popular_articles(limit=article_limit)
-            if not self.current_articles:
-                return f"エラー: ユーザー '{username}' の記事が見つかりませんでした。", ""
-        except Exception as e:
-            logger.error(f"記事の取得中にエラーが発生しました: {e}")
-            return f"エラー: 記事の取得中にエラーが発生しました: {e}", ""
-
-        # PostGeneratorのインスタンスを作成（未設定の場合）
-        if not self.generator:
-            self.generator = PostGenerator()
-
-        # 投稿文を生成
-        try:
-            post = self.generator.generate_post(self.current_articles, tone, template)
-
-            # 定型文が使用された場合のメッセージを変更
-            if template:
-                return "成功: 定型文を使用して投稿文を生成しました。", post
-            else:
-                return f"成功: ユーザー '{username}' の人気記事から投稿文を生成しました。", post
-        except Exception as e:
-            logger.error(f"投稿文の生成中にエラーが発生しました: {e}")
-            return f"エラー: 投稿文の生成中にエラーが発生しました: {e}", ""
-
-    def process_url_streaming(self, url: str, tone: str, article_limit: int, template: str = ""):
+    def process_url_streaming(self, url: str, template: str, tone: str, article_limit: int):
         """
         URLを処理して投稿文を生成する（ストリーミング版）
 
         Args:
             url: ZennのURL
-            tone: 投稿のトーン（"personal"または"corporate"）
-            article_limit: 取得する記事数
             template: 定型文（空文字列の場合は使用しない）
+            tone: 投稿のトーン（"個人向け"または"企業向け"）
+            article_limit: 取得する記事数
 
         Yields:
             Tuple[str, str]: 処理結果のメッセージと生成された投稿文
         """
+        # トーンの変換
+        tone = "personal" if tone == "個人向け" else "corporate"
         # URLからユーザー名を抽出
         username = self.extract_username(url)
         if not username:
@@ -234,11 +180,12 @@ class GradioInterface:
             def map_tone(tone):
                 return "personal" if tone == "個人向け" else "corporate"
 
-            # ボタンクリック時の処理
+            # ボタンクリック時の処理（ストリーミング版）
             generate_btn.click(
-                fn=lambda url, template, tone, limit: self.process_url(url, map_tone(tone), limit, template),
+                fn=self.process_url_streaming,
                 inputs=[url_input, template_input, tone_radio, article_limit],
                 outputs=[status_output, post_output],
+                api_name="generate_streaming",
             )
 
             gr.Markdown("""
@@ -255,6 +202,8 @@ class GradioInterface:
             - 定型文を入力すると、生成された投稿文の冒頭に追加されます
             """)
 
+        # キューを有効にしてストリーミングをサポート
+        interface.queue()
         return interface
 
     def launch(self, **kwargs):
