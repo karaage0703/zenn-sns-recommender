@@ -27,64 +27,6 @@ class PostGenerator:
         else:
             openai.api_key = self.api_key
 
-    def generate_post(
-        self, articles: List[Dict[str, Any]], tone: str = "personal", template: str = "", max_tokens: int = 500
-    ) -> str:
-        """
-        LLMを使って投稿文を生成
-
-        Args:
-            articles: 記事情報のリスト
-            tone: 投稿のトーン（"personal"または"corporate"）
-            template: 定型文（空文字列の場合は使用しない）
-            max_tokens: 生成する最大トークン数
-
-        Returns:
-            str: 生成された投稿文
-        """
-        if not self.api_key:
-            return "OpenAI APIキーが設定されていないため、投稿文を生成できません。"
-
-        if not articles:
-            return "記事が見つかりませんでした。"
-
-        # 記事情報をテキスト形式に変換
-        articles_text = self._format_articles_for_prompt(articles)
-
-        # 定型文の処理は後で行う（LLMの結果に追加する）
-
-        # トーンに応じたプロンプトを作成
-        if tone.lower() == "corporate":
-            prompt = self._create_corporate_prompt(articles_text)
-        else:
-            prompt = self._create_personal_prompt(articles_text)
-
-        try:
-            # OpenAI APIを使用して投稿文を生成
-            response = openai.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "system", "content": prompt["system"]}, {"role": "user", "content": prompt["user"]}],
-                max_tokens=max_tokens,
-                temperature=0.7,
-            )
-            generated_post = response.choices[0].message.content.strip()
-
-            # 定型文が指定されている場合は、投稿文の冒頭に追加
-            if template:
-                # 記事のURLを定型文に埋め込む
-                if "{url}" in template and articles:
-                    # 最初の記事のURLを使用
-                    url = articles[0]["url"]
-                    template = template.replace("{url}", url)
-
-                # 定型文と生成された投稿文を結合
-                return f"{template}\n\n{generated_post}"
-
-            return generated_post
-        except Exception as e:
-            logger.error(f"投稿文の生成中にエラーが発生しました: {e}")
-            return f"投稿文の生成中にエラーが発生しました: {e}"
-
     def _format_articles_for_prompt(self, articles: List[Dict[str, Any]]) -> str:
         """
         記事情報をプロンプト用にフォーマット
@@ -217,7 +159,7 @@ Zennの人気記事を紹介するTwitter（X）投稿を作成してくださ�
         try:
             # OpenAI APIを使用して投稿文を生成（ストリーミング）
             stream = openai.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="chatgpt-4o-latest",
                 messages=[{"role": "system", "content": prompt["system"]}, {"role": "user", "content": prompt["user"]}],
                 max_tokens=max_tokens,
                 temperature=0.7,
