@@ -9,7 +9,6 @@ import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime
 import random
-import json
 
 # ロガーの設定
 logger = logging.getLogger(__name__)
@@ -133,10 +132,8 @@ class ZennDataFetcher:
                         # タグ（RSSフィードには含まれていないので空リストとする）
                         tags = []
 
-                        # 記事のスラッグを抽出
-                        slug_match = re.search(r"/articles/([^/]+)$", url)
-                        if slug_match:
-                            slug = slug_match.group(1)
+                        # 記事のURLかどうかをチェック
+                        if "/articles/" in url:
                             # 記事ページから直接いいね数を取得
                             try:
                                 article_page_url = url
@@ -182,6 +179,7 @@ class ZennDataFetcher:
     def get_popular_articles(self, limit: int = 5, random_seed: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         人気記事を取得する
+        いいね数の順位に基づいて確率的に選択する（いいね数が多い記事ほど選ばれる確率が高い）
 
         Args:
             limit: 取得する記事数（デフォルト: 5）
@@ -190,8 +188,6 @@ class ZennDataFetcher:
         Returns:
             List[Dict[str, Any]]: 人気記事のリスト
         """
-        # ランダムモジュールはすでにインポート済み
-
         # ランダムシードを設定
         if random_seed is None:
             random_seed = int(datetime.now().timestamp())
@@ -206,11 +202,19 @@ class ZennDataFetcher:
         # いいね数でソート（多い順）
         sorted_articles = sorted(articles, key=lambda x: x.get("likes", 0), reverse=True)
 
-        # 上位20件からランダムに選択
-        top_articles = sorted_articles[:20]
-        if len(top_articles) > limit:
-            selected_articles = random.sample(top_articles, limit)
-        else:
-            selected_articles = top_articles
+        # 上位100件を取得（記事数が100より少ない場合は全て）
+        max_articles = min(100, len(sorted_articles))
+        top_articles = sorted_articles[:max_articles]
+
+        if len(top_articles) <= limit:
+            # 記事数がlimit以下の場合は全て返す
+            return top_articles
+
+        # 順位に基づいて重み付けを計算（順位の逆数を使用）
+        # 例: 1位→1.0, 2位→0.5, 3位→0.33...
+        weights = [1.0 / (i + 1) for i in range(len(top_articles))]
+
+        # 重み付けに基づいて確率的に選択
+        selected_articles = random.choices(population=top_articles, weights=weights, k=limit)
 
         return selected_articles
