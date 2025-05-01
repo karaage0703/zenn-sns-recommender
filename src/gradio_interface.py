@@ -3,9 +3,11 @@ Gradioインターフェースを管理するモジュール
 """
 
 import re
+import os
+import json
 import logging
 import gradio as gr
-from typing import Tuple, Optional
+from typing import Optional
 from .zenn_data_fetcher import ZennDataFetcher
 from .post_generator import PostGenerator
 
@@ -27,6 +29,16 @@ class GradioInterface:
         self.fetcher = fetcher
         self.generator = generator
         self.current_articles = []
+
+        # 設定ファイルのパス（Dockerコンテナ内でも動作するように絶対パスで指定）
+        self.config_path = "/app/config.json"
+        logger.info(f"設定ファイルのパス: {self.config_path}")
+
+        # デフォルト設定
+        self.config = {"zenn_url": "", "template": ""}
+
+        # 設定を読み込む
+        self.load_config()
 
     def extract_username(self, url: str) -> Optional[str]:
         """
@@ -58,75 +70,91 @@ class GradioInterface:
 
         return None
 
-    def process_url(self, url: str, tone: str, article_limit: int, template: str = "") -> Tuple[str, str]:
+    def save_config(self, zenn_url: str, template: str) -> str:
         """
-        URLを処理して投稿文を生成する
+        設定を保存する
 
         Args:
-            url: ZennのURL
-            tone: 投稿のトーン（"personal"または"corporate"）
-            article_limit: 取得する記事数
-            template: 定型文（空文字列の場合は使用しない）
+            zenn_url: ZennのアカウントURL
+            template: 定型文
 
         Returns:
-            Tuple[str, str]: 処理結果のメッセージと生成された投稿文
+            str: 保存結果のメッセージ
         """
-        # URLからユーザー名を抽出
-        username = self.extract_username(url)
-        if not username:
-            return "エラー: 有効なZennのURLまたはユーザー名を入力してください。", ""
-
-        # 企業アカウントかどうかを判断
-        is_company = url.startswith("https://zenn.dev/p/") or url.startswith("http://zenn.dev/p/")
-
-        # ZennDataFetcherのインスタンスを作成（未設定の場合）
-        if not self.fetcher:
-            self.fetcher = ZennDataFetcher(username, is_company=is_company)
-        else:
-            self.fetcher.username = username
-            self.fetcher.is_company = is_company
-            # URLを再構築
-            self.fetcher.setup_urls()
-
-        # 人気記事を取得
         try:
-            self.current_articles = self.fetcher.get_popular_articles(limit=article_limit)
-            if not self.current_articles:
-                return f"エラー: ユーザー '{username}' の記事が見つかりませんでした。", ""
+            self.config["zenn_url"] = zenn_url
+            self.config["template"] = template
+
+            # 設定ファイルの内容をログに出力（デバッグ用）
+            logger.info(f"保存する設定: {self.config}")
+
+            # 設定ファイルを保存
+            try:
+                with open(self.config_path, "w", encoding="utf-8") as f:
+                    json.dump(self.config, f, ensure_ascii=False, indent=2)
+
+                # ファイルが正常に保存されたか確認
+                if os.path.exists(self.config_path):
+                    file_size = os.path.getsize(self.config_path)
+                    logger.info(f"設定を保存しました: {self.config_path} (サイズ: {file_size} バイト)")
+                    return f"設定を保存しました: {self.config_path}"
+                else:
+                    logger.error(f"設定ファイルが作成されませんでした: {self.config_path}")
+                    return f"設定ファイルが作成されませんでした: {self.config_path}"
+            except IOError as e:
+                logger.error(f"ファイルの書き込み中にエラーが発生しました: {e}")
+                return f"ファイルの書き込み中にエラーが発生しました: {e}"
         except Exception as e:
-            logger.error(f"記事の取得中にエラーが発生しました: {e}")
-            return f"エラー: 記事の取得中にエラーが発生しました: {e}", ""
+            logger.error(f"設定の保存中にエラーが発生しました: {e}")
+            return f"設定の保存中にエラーが発生しました: {e}"
 
-        # PostGeneratorのインスタンスを作成（未設定の場合）
-        if not self.generator:
-            self.generator = PostGenerator()
-
-        # 投稿文を生成
+    def load_config(self) -> None:
+        """設定を読み込む"""
         try:
-            post = self.generator.generate_post(self.current_articles, tone, template)
-
-            # 定型文が使用された場合のメッセージを変更
-            if template:
-                return "成功: 定型文を使用して投稿文を生成しました。", post
+            if os.path.exists(self.config_path):
+                try:
+                    with open(self.config_path, "r", encoding="utf-8") as f:
+                        loaded_config = json.load(f)
+                        self.config.update(loaded_config)
+                    logger.info(f"設定を読み込みました: {self.config_path}")
+                    logger.info(f"読み込んだ設定: {self.config}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"設定ファイルのJSONフォーマットが不正です: {e}")
+                except IOError as e:
+                    logger.error(f"設定ファイルの読み込み中にIOエラーが発生しました: {e}")
             else:
-                return f"成功: ユーザー '{username}' の人気記事から投稿文を生成しました。", post
-        except Exception as e:
-            logger.error(f"投稿文の生成中にエラーが発生しました: {e}")
-            return f"エラー: 投稿文の生成中にエラーが発生しました: {e}", ""
+                logger.info(f"設定ファイルが見つかりません。デフォルト設定を使用します: {self.config_path}")
+                logger.info(f"デフォルト設定: {self.config}")
 
-    def process_url_streaming(self, url: str, tone: str, article_limit: int, template: str = ""):
+                # デバッグ情報：ディレクトリの存在確認
+                parent_dir = os.path.dirname(self.config_path)
+                if os.path.exists(parent_dir):
+                    logger.info(f"親ディレクトリは存在します: {parent_dir}")
+                    # ディレクトリの書き込み権限を確認
+                    if os.access(parent_dir, os.W_OK):
+                        logger.info(f"親ディレクトリに書き込み権限があります: {parent_dir}")
+                    else:
+                        logger.warning(f"親ディレクトリに書き込み権限がありません: {parent_dir}")
+                else:
+                    logger.warning(f"親ディレクトリが存在しません: {parent_dir}")
+        except Exception as e:
+            logger.error(f"設定の読み込み中にエラーが発生しました: {e}")
+
+    def process_url_streaming(self, url: str, template: str, tone: str, article_limit: int):
         """
         URLを処理して投稿文を生成する（ストリーミング版）
 
         Args:
             url: ZennのURL
-            tone: 投稿のトーン（"personal"または"corporate"）
-            article_limit: 取得する記事数
             template: 定型文（空文字列の場合は使用しない）
+            tone: 投稿のトーン（"個人向け"または"企業向け"）
+            article_limit: 取得する記事数
 
         Yields:
             Tuple[str, str]: 処理結果のメッセージと生成された投稿文
         """
+        # トーンの変換
+        tone = "personal" if tone == "個人向け" else "corporate"
         # URLからユーザー名を抽出
         username = self.extract_username(url)
         if not username:
@@ -201,6 +229,7 @@ class GradioInterface:
                         label="ZennのアカウントURL",
                         placeholder="https://zenn.dev/username または @username または username",
                         info="ZennのアカウントURLまたはユーザー名を入力してください",
+                        value=self.config["zenn_url"],
                     )
 
                     template_input = gr.Textbox(
@@ -208,6 +237,7 @@ class GradioInterface:
                         placeholder="定型文を入力してください。{url}は記事のURLに置き換えられます。",
                         info="定型文を入力すると、生成された投稿文の冒頭に追加されます。空欄の場合は追加されません。",
                         lines=3,
+                        value=self.config["template"],
                     )
 
                     with gr.Row():
@@ -222,7 +252,9 @@ class GradioInterface:
                             minimum=1, maximum=10, value=5, step=1, label="取得する記事数", info="分析に使用する人気記事の数"
                         )
 
-                    generate_btn = gr.Button("投稿文を生成", variant="primary")
+                    with gr.Row():
+                        generate_btn = gr.Button("投稿文を生成", variant="primary")
+                        save_config_btn = gr.Button("設定を保存", variant="secondary")
 
             with gr.Row():
                 status_output = gr.Textbox(label="処理状況", interactive=False)
@@ -234,11 +266,19 @@ class GradioInterface:
             def map_tone(tone):
                 return "personal" if tone == "個人向け" else "corporate"
 
-            # ボタンクリック時の処理
+            # ボタンクリック時の処理（ストリーミング版）
             generate_btn.click(
-                fn=lambda url, template, tone, limit: self.process_url(url, map_tone(tone), limit, template),
+                fn=self.process_url_streaming,
                 inputs=[url_input, template_input, tone_radio, article_limit],
                 outputs=[status_output, post_output],
+                api_name="generate_streaming",
+            )
+
+            # 設定保存ボタンのクリックイベント
+            save_config_btn.click(
+                fn=self.save_config,
+                inputs=[url_input, template_input],
+                outputs=status_output,
             )
 
             gr.Markdown("""
@@ -248,13 +288,15 @@ class GradioInterface:
             3. 投稿のトーン（個人向け/企業向け）を選択してください
             4. 「投稿文を生成」ボタンをクリックしてください
             5. 生成された投稿文をコピーしてSNSに投稿できます
-            
+
             ## 注意事項
             - OpenAI APIキーが必要です（環境変数OPENAI_API_KEYに設定してください）
             - Zennのデータ取得にはスクレイピングを使用しています
             - 定型文を入力すると、生成された投稿文の冒頭に追加されます
             """)
 
+        # キューを有効にしてストリーミングをサポート
+        interface.queue()
         return interface
 
     def launch(self, **kwargs):

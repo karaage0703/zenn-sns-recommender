@@ -11,9 +11,6 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ruffをインストール（コードフォーマッタ）
-RUN pip install --no-cache-dir ruff==0.9.1
-
 # アプリケーションのコードをコピー
 COPY . .
 
@@ -24,4 +21,4 @@ RUN pip install -e .
 EXPOSE 7860
 
 # コマンドを実行
-CMD ["python", "-m", "src.main", "--host", "0.0.0.0"]
+CMD ["python", "-m", "src.main"]

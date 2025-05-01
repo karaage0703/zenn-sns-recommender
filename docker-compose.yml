@@ -11,4 +11,4 @@ services:
     env_file:
       - .env
     tty: true
-    command: python -m src.main --host 0.0.0.0
+    command: python -m src.main

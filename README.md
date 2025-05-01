@@ -29,7 +29,7 @@
 1. リポジトリをクローン:
 
 ```bash
-git clone https://github.com/yourusername/zenn-sns-recommender.git
+git clone https://github.com/karaage0703/zenn-sns-recommender.git
 cd zenn-sns-recommender
 ```
 

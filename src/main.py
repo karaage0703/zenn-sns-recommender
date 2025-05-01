@@ -32,7 +32,7 @@ def main():
     # Gradioインターフェースの起動
     logger.info("Zenn記事推薦＆SNS投稿文生成ツールを起動しています...")
     interface = GradioInterface()
-    interface.launch(server_port=args.port, share=args.share)
+    interface.launch(server_name="0.0.0.0", server_port=args.port, share=args.share)
 
 
 if __name__ == "__main__":
